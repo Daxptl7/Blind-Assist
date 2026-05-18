@@ -1,0 +1,12 @@
+2026-05-18 09:37:53,686 [INFO] Opening Laptop Webcam (cv2.VideoCapture(0))...
+2026-05-18 09:37:53,689 [ERROR] Camera Init Error: Could not open webcam
+2026-05-18 09:42:04,836 [INFO] Opening Laptop Webcam (cv2.VideoCapture(0))...
+2026-05-18 09:42:04,838 [ERROR] Camera Init Error: Could not open webcam
+2026-05-18 09:43:23,578 [INFO] Using image simulation mode.
+2026-05-18 09:43:23,578 [ERROR] Camera Error: Image not found: /workspaces/Blind-Assist/blindterminal/modules/test.jpg
+2026-05-18 09:44:23,697 [INFO] Using image simulation mode.
+2026-05-18 09:44:36,743 [ERROR] TTS Error: This means you probably do not have eSpeak or eSpeak-ng installed!
+2026-05-18 09:45:04,804 [INFO] Shutting down OCR module
+2026-05-18 09:45:08,956 [INFO] Using image simulation mode.
+2026-05-18 09:45:18,928 [ERROR] TTS Error: This means you probably do not have eSpeak or eSpeak-ng installed!
+2026-05-18 09:50:38,752 [INFO] Shutting down OCR module

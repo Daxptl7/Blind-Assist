@@ -1,0 +1,20 @@
+{
+  "language": "eng",
+  "tts_rate": 150,
+  "tts_volume": 1.0,
+  "tts_engine": "pyttsx3",
+  "morse_dot_max_ms": 400,
+  "morse_dash_min_ms": 400,
+  "morse_letter_gap_ms": 1500,
+  "morse_word_gap_ms": 3000,
+  "openai_api_key": "sk-...",
+  "bone_device": "hw:1,0",
+  "speaker_device": "hw:2,0",
+  "yolo_confidence": 0.35,
+  "yolo_model_path": "/media/blindassist/models/yolov8s.pt",
+  "ocr_default_lang": "eng",
+  "gps_baud": 9600,
+  "gps_port": "/dev/ttyS0",
+  "gesture_confidence": 0.85,
+  "emotion_consecutive_threshold": 2
+}

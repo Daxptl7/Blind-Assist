@@ -1,0 +1,29 @@
+2026-05-18 09:50:44,301 [INFO] TTS Manager initialized and worker thread started.
+2026-05-18 09:50:44,317 [CRITICAL] TTS Engine initialization failed: This means you probably do not have eSpeak or eSpeak-ng installed!
+2026-05-18 09:50:51,827 [INFO] Queuing text: dax patel (eng)
+2026-05-18 09:50:59,723 [INFO] Queuing text: Dax patel (eng)
+2026-05-18 09:51:04,361 [INFO] Queuing text: kem cho (eng)
+2026-05-18 09:54:06,753 [INFO] SIGINT received. Shutting down TTS module...
+2026-05-18 09:54:06,754 [INFO] Shutting down TTS Manager...
+2026-05-18 09:54:38,513 [INFO] TTS Manager initialized and worker thread started.
+2026-05-18 09:54:43,849 [INFO] Queuing text: Dax patel (eng)
+2026-05-18 09:54:43,850 [INFO] Speaking: Dax patel [Lang: eng]
+2026-05-18 09:56:24,251 [INFO] SIGINT received. Shutting down TTS module...
+2026-05-18 09:56:24,251 [INFO] Shutting down TTS Manager...
+2026-05-18 09:58:23,196 [INFO] TTS Manager initialized successfully.
+2026-05-18 09:58:49,721 [INFO] Queueing Text: i am dax patel and i am studying Computer science and engineering
+2026-05-18 09:58:49,721 [INFO] Generating Audio: i am dax patel and i am studying Computer science and engineering
+2026-05-18 09:58:49,732 [INFO] Audio Saved: /workspaces/Blind-Assist/blindterminal/audio/speech_1.wav
+2026-05-18 09:59:43,831 [INFO] Stopping TTS Module
+2026-05-18 09:59:43,831 [INFO] Shutting down TTS Manager...
+2026-05-18 09:59:52,965 [INFO] TTS Manager initialized successfully.
+2026-05-18 10:00:34,621 [INFO] Queueing Text: hello my name is xyz and i study in PDEU and hloo everyone how ar yo?
+2026-05-18 10:00:34,621 [INFO] Generating Audio: hello my name is xyz and i study in PDEU and hloo everyone how ar yo?
+2026-05-18 10:00:34,632 [INFO] Audio Saved: /workspaces/Blind-Assist/blindterminal/audio/speech_1.wav
+2026-05-18 10:03:38,723 [INFO] Stopping TTS Module
+2026-05-18 10:03:38,724 [INFO] Shutting down TTS Manager...
+2026-05-18 10:03:41,772 [INFO] TTS Manager initialized successfully.
+2026-05-18 10:03:41,802 [INFO] Using Voice: Afrikaans
+2026-05-18 10:04:15,431 [INFO] Queueing Text: i am dax patel and i am sturdy computer science and enigneering in the pandit deendayal enrgy university
+2026-05-18 10:04:15,432 [INFO] Generating Audio: i am dax patel and i am sturdy computer science and enigneering in the pandit deendayal enrgy university
+2026-05-18 10:04:15,443 [INFO] Audio Saved: /workspaces/Blind-Assist/blindterminal/audio/speech_1.wav
