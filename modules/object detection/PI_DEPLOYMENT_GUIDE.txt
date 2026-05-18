@@ -1,0 +1,154 @@
+  git push --set-upstream main main# BlindAssist — Raspberry Pi 5 Deployment Guide
+# Object Detection Module | Team: Dhruv Vaghela & Dax Patel
+
+==============================================================
+ STEP 1: Install dependencies on Pi (one time, needs internet)
+==============================================================
+
+# Update Pi OS first
+sudo apt update && sudo apt upgrade -y
+
+# Install system packages
+sudo apt install -y python3-pip python3-opencv espeak libespeak-dev
+
+# Install Python libraries
+pip3 install ultralytics pyttsx3 numpy --break-system-packages
+
+# If using Pi Camera Module 3
+pip3 install picamera2 --break-system-packages
+
+# If using Google Coral USB Accelerator
+pip3 install tflite-runtime --break-system-packages
+
+==============================================================
+ STEP 2: Pre-download the model (needs internet, one time)
+==============================================================
+
+# Create folder on USB drive (mount your USB first)
+sudo mkdir -p /media/blindassist/models
+
+# Download model to USB drive (not MicroSD — saves SD wear)
+python3 -c "
+from ultralytics import YOLO
+import shutil
+model = YOLO('yolov8s.pt')   # downloads to current folder
+shutil.move('yolov8s.pt', '/media/blindassist/models/yolov8s.pt')
+print('Model saved to USB drive.')
+"
+
+# After this step — NO INTERNET NEEDED EVER AGAIN for detection
+
+==============================================================
+ STEP 3: Edit object_detection.py — flip these 4 flags
+==============================================================
+
+# Open the file
+nano /home/pi/object_detection.py
+
+# Change these lines at the top:
+#   MODEL_PATH   = "/media/blindassist/models/yolov8s.pt"
+#   HEADLESS     = True     # no monitor on Pi
+#   USE_PICAMERA = True     # using Pi Camera Module 3
+#   USE_GPIO     = True     # physical Morse button connected
+
+# If Coral USB is plugged in, also set:
+#   USE_CORAL    = True
+
+==============================================================
+ STEP 4: Test it manually first
+==============================================================
+
+# Run with display (connect monitor via micro-HDMI first)
+HEADLESS=False python3 object_detection.py
+
+# Then test fully headless
+python3 object_detection.py
+# Press physical button → hear spoken detection result
+
+==============================================================
+ STEP 5: Auto-start on Pi boot (so blind user just powers on)
+==============================================================
+
+# Create a systemd service so detection starts automatically
+sudo nano /etc/systemd/system/blindassist-detection.service
+
+# Paste this content:
+[Unit]
+Description=BlindAssist Object Detection
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/pi/object_detection.py
+WorkingDirectory=/home/pi
+StandardOutput=append:/home/pi/blindassist_detection.log
+StandardError=append:/home/pi/blindassist_detection.log
+Restart=on-failure
+RestartSec=5
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+
+# Enable the service
+sudo systemctl daemon-reload
+sudo systemctl enable blindassist-detection.service
+sudo systemctl start  blindassist-detection.service
+
+# Check if it is running
+sudo systemctl status blindassist-detection.service
+
+# See live logs
+tail -f /home/pi/blindassist_detection.log
+
+==============================================================
+ STEP 6: Performance check — expected FPS on Pi 5
+==============================================================
+
+Hardware setup               Expected FPS    Suitable?
+---------------------------  --------------  ----------
+Pi 5 CPU only (yolov8n)      8-12 FPS        Yes (basic)
+Pi 5 CPU only (yolov8s)      4-7  FPS        Yes (good)
+Pi 5 + Coral USB (yolov8s)   25-35 FPS       Excellent
+Pi 5 + Coral USB (yolov8n)   50+  FPS        Overkill
+
+For blind user use case: 4 FPS is fine.
+User presses button → scan takes ~0.2s → speaks result.
+Real-time live video is NOT needed for the blind user.
+
+==============================================================
+ STEP 7: Check CPU temperature while running
+==============================================================
+
+# In a second terminal while detection is running:
+watch -n 2 vcgencmd measure_temp
+
+# Should stay below 70°C with Active Cooler fitted
+# Code auto-pauses at 80°C and speaks a warning to user
+
+==============================================================
+ OFFLINE CONFIRMATION — what works without internet
+==============================================================
+
+Feature                  Offline?   Notes
+-----------------------  ---------  --------------------------
+Object detection (YOLO)  YES        Model on USB drive
+TTS speech (pyttsx3)     YES        eSpeak engine, no internet
+OCR (Tesseract)          YES        Installed via apt
+Morse code input         YES        GPIO, no internet
+TinyLlama AI             YES        Model on USB drive
+ChatGPT AI               NO         Needs OpenAI API internet
+Google TTS (gTTS)        NO         Use pyttsx3 instead
+Voice-to-text            NO         Use offline Whisper instead
+
+==============================================================
+ OPTIONAL: Replace Google TTS with offline Whisper
+==============================================================
+
+# Install OpenAI Whisper for offline voice-to-text
+pip3 install openai-whisper --break-system-packages
+
+# In your voice_input.py, replace SpeechRecognition with:
+import whisper
+whisper_model = whisper.load_model("tiny")   # ~75MB, runs on Pi
+result = whisper_model.transcribe("audio.wav")
+print(result["text"])
