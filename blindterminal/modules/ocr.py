@@ -19,7 +19,7 @@ USE_GPIO = False
 # IMPORTANT:
 # GitHub Codespaces cannot access webcam.
 # So we use image simulation mode.
-USE_IMAGE_SIMULATION = True
+USE_IMAGE_SIMULATION = False  # Set True only in Codespaces (no webcam)
 
 # ─────────────────────────────────────────────────────────────
 # PATH CONFIGURATION

@@ -27,3 +27,27 @@
 2026-05-18 10:04:15,431 [INFO] Queueing Text: i am dax patel and i am sturdy computer science and enigneering in the pandit deendayal enrgy university
 2026-05-18 10:04:15,432 [INFO] Generating Audio: i am dax patel and i am sturdy computer science and enigneering in the pandit deendayal enrgy university
 2026-05-18 10:04:15,443 [INFO] Audio Saved: /workspaces/Blind-Assist/blindterminal/audio/speech_1.wav
+2026-06-24 18:13:13,840 [INFO] pygame.mixer initialized for audio playback.
+2026-06-24 18:13:13,844 [INFO] TTS Manager initialized successfully.
+2026-06-24 18:14:21,157 [INFO] NumExpr defaulting to 8 threads.
+2026-06-24 18:14:22,924 [INFO] Using Voice: Albert
+2026-06-24 18:14:26,401 [INFO] librosa + scikit-learn loaded.
+2026-06-24 18:14:26,409 [INFO] Emotion SVM classifier trained (synthetic data).
+2026-06-24 18:14:42,607 [INFO] pygame.mixer initialized for audio playback.
+2026-06-24 18:14:42,609 [INFO] TTS Manager initialized successfully.
+2026-06-24 18:14:43,818 [INFO] NumExpr defaulting to 8 threads.
+2026-06-24 18:14:45,145 [INFO] Using Voice: Albert
+2026-06-24 18:14:45,945 [INFO] librosa + scikit-learn loaded.
+2026-06-24 18:14:45,951 [INFO] Emotion SVM classifier trained (synthetic data).
+2026-06-24 18:14:48,376 [INFO] Loading model: yolov8s.pt
+2026-06-24 18:14:48,376 [INFO] Loading model: yolov8s.pt
+2026-06-24 18:15:03,196 [INFO] Model 'yolov8s.pt' loaded. Classes available: 80
+2026-06-24 18:17:14,591 [INFO] pygame.mixer initialized for audio playback.
+2026-06-24 18:17:14,592 [INFO] TTS Manager initialized successfully.
+2026-06-24 18:17:15,879 [INFO] NumExpr defaulting to 8 threads.
+2026-06-24 18:17:16,507 [INFO] MediaPipe Tasks API loaded.
+2026-06-24 18:17:17,013 [INFO] Using Voice: Albert
+2026-06-24 18:17:18,130 [INFO] librosa + scikit-learn loaded.
+2026-06-24 18:17:18,137 [INFO] Emotion SVM classifier trained (synthetic data).
+2026-06-24 18:17:20,308 [INFO] Loading model: yolov8s.pt
+2026-06-24 18:17:20,363 [INFO] Model 'yolov8s.pt' loaded. Classes available: 80

@@ -1,6 +1,0 @@
-2026-05-18 10:47:22,978 [INFO] Loading model: yolov8s.pt
-2026-05-18 10:47:30,675 [INFO] Model 'yolov8s.pt' loaded. Classes available: 80
-2026-05-18 10:47:30,676 [INFO] Opening camera index 0...
-2026-05-18 10:47:32,423 [INFO] Camera ready — 1920x1080
-2026-05-18 10:49:42,780 [INFO] Shutdown signal received — releasing camera.
-2026-05-18 10:49:42,900 [INFO] Session ended.

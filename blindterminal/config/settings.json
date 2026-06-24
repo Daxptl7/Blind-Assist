@@ -7,7 +7,7 @@
   "morse_dash_min_ms": 400,
   "morse_letter_gap_ms": 1500,
   "morse_word_gap_ms": 3000,
-  "openai_api_key": "sk-...",
+  "gemini_api_key": "AIzaSyDWDlkM_wJgjXB_iPxw7iwTqOVxmtoUljA",
   "bone_device": "hw:1,0",
   "speaker_device": "hw:2,0",
   "yolo_confidence": 0.35,
@@ -15,6 +15,9 @@
   "ocr_default_lang": "eng",
   "gps_baud": 9600,
   "gps_port": "/dev/ttyS0",
+  "gps_test_lat": 22.7196,
+  "gps_test_lon": 75.8577,
   "gesture_confidence": 0.85,
-  "emotion_consecutive_threshold": 2
+  "emotion_consecutive_threshold": 2,
+  "offline_model_path": "/media/blindassist/models/tinyllama-1.1b.Q4_K_M.gguf"
 }

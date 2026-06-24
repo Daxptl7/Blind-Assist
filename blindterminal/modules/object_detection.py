@@ -312,9 +312,86 @@ def scan_objects_tts(cap) -> str:
     return out
 
 # ──────────────────────────────────────────────────────────────
-# SECTION J: MAIN LIVE LOOP
+# SECTION J: PUBLIC API — run_detection()
+# ──────────────────────────────────────────────────────────────
+def run_detection():
+    """
+    Start live object detection loop with webcam.
+    Press S to scan (TTS description), C to toggle CLAHE, Q to quit.
+    Called by main.py Mode F.
+    """
+    global ENABLE_CLAHE
+
+    print("=" * 58)
+    print("  BlindAssist — Object Detection Active")
+    print("  [S] Scan → TTS  |  [C] Toggle CLAHE  |  [Q] Quit")
+    print("=" * 58)
+
+    cap = None
+    try:
+        cap = open_camera(CAMERA_INDEX)
+        fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                logger.error("Live feed lost.")
+                break
+
+            processed = preprocess_frame(frame.copy())
+
+            try:
+                results = model.predict(
+                    processed,
+                    conf=CONFIDENCE,
+                    imgsz=INFER_SIZE,
+                    verbose=False
+                )
+            except Exception as e:
+                logger.warning("Frame skipped: %s", e)
+                cv2.imshow("BlindAssist — Live Detection", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+                continue
+
+            annotated = draw_detections(processed.copy(), results)
+
+            bar = "S=Scan(TTS)  C=Toggle CLAHE  Q=Quit"
+            cv2.putText(annotated, bar, (10, fh - 10), FONT, 0.50, (0, 0, 0), 3)
+            cv2.putText(annotated, bar, (10, fh - 10), FONT, 0.50, (200, 200, 200), 1)
+
+            cv2.imshow("BlindAssist — Live Detection", annotated)
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('s'):
+                print("\n[SCANNING...]")
+                tts_text = scan_objects_tts(cap)
+                print(f"[AI OUTPUT] {tts_text}\n")
+
+            elif key == ord('c'):
+                ENABLE_CLAHE = not ENABLE_CLAHE
+                print(f"[CLAHE] {'ON' if ENABLE_CLAHE else 'OFF'}")
+
+            elif key == ord('q'):
+                break
+
+    except RuntimeError as e:
+        logger.critical("Camera error: %s", e)
+        print(f"\n[ERROR] {e}")
+
+    finally:
+        if cap is not None and cap.isOpened():
+            cap.release()
+        cv2.destroyAllWindows()
+        logger.info("Object detection session ended.")
+
+
+# ──────────────────────────────────────────────────────────────
+# SECTION K: MAIN LIVE LOOP (standalone)
 # ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+
     print("=" * 58)
     print("  BlindAssist — FULL EFFICIENCY Object Detection")
     print("  Project : CSR-DES-INFINEON-2025")
