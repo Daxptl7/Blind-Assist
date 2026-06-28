@@ -9,9 +9,8 @@ Reads GPS coordinates and provides:
   - Current location (reverse geocoded to street address)
   - Walking directions to a destination via OSRM
 
-LAPTOP SIMULATION — uses hardcoded Indore, India coordinates.
-When Pi hardware arrives, flip USE_GPIO=True to read UART serial
-from NEO-8M GPS module.
+LAPTOP SIMULATION — uses IP geolocation or hardcoded Navsari, Gujarat coordinates.
+When Pi hardware is connected, USE_GPIO can be enabled to read UART serial.
 """
 
 import sys
@@ -28,7 +27,7 @@ from typing import Optional, Dict
 # ──────────────────────────────────────────────────────────────
 HEADLESS = False
 USE_PICAMERA = False
-USE_GPIO = False     # True = read real GPS from NEO-8M via UART
+USE_GPIO = False     # Loaded dynamically from settings.json
 
 # ──────────────────────────────────────────────────────────────
 # PATH CONFIGURATION
@@ -65,9 +64,12 @@ def _load_settings() -> dict:
 
 _settings = _load_settings()
 
-# LAPTOP SIMULATION — Hardcoded test coordinates (Indore, India)
-GPS_TEST_LAT = _settings.get("gps_test_lat", 22.7196)
-GPS_TEST_LON = _settings.get("gps_test_lon", 75.8577)
+# Load hardware flags from settings
+USE_GPIO = _settings.get("use_gpio", False)
+
+# LAPTOP SIMULATION — Hardcoded test coordinates (Navsari, Gujarat)
+GPS_TEST_LAT = _settings.get("gps_test_lat", 20.9467)
+GPS_TEST_LON = _settings.get("gps_test_lon", 72.9520)
 GPS_BAUD = _settings.get("gps_baud", 9600)
 GPS_PORT = _settings.get("gps_port", "/dev/ttyS0")
 
@@ -117,12 +119,34 @@ def _read_gps_hardware() -> Optional[Dict]:
         return None
 
 
+def _read_gps_ip() -> Optional[Dict]:
+    """Fetch coordinates based on public IP address using ip-api.com."""
+    try:
+        import requests
+        logger.info("Attempting IP-based geolocation...")
+        response = requests.get("http://ip-api.com/json/", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success":
+                lat = float(data.get("lat"))
+                lon = float(data.get("lon"))
+                city = data.get("city", "Unknown")
+                region = data.get("regionName", "Unknown")
+                logger.info(f"IP-based location success: {lat}, {lon} ({city}, {region})")
+                return {'lat': lat, 'lon': lon}
+            else:
+                logger.warning(f"IP geolocation API returned status: {data.get('status')}")
+    except Exception as e:
+        logger.warning(f"IP-based geolocation failed: {e}")
+    return None
+
+
 def _read_gps_simulation() -> Dict:
     """Return hardcoded test coordinates for laptop simulation."""
     # LAPTOP SIMULATION — replace with GPIO on Pi
     logger.info(
         f"[SIMULATION] Using test coordinates: "
-        f"{GPS_TEST_LAT}, {GPS_TEST_LON} (Indore, India)"
+        f"{GPS_TEST_LAT}, {GPS_TEST_LON} (Navsari, Gujarat)"
     )
     return {
         'lat': GPS_TEST_LAT,
@@ -286,11 +310,28 @@ def get_location() -> Dict:
     Returns:
         Dict with 'lat', 'lon', 'address' keys.
     """
+    coords = None
+
+    # 1. Try actual hardware if USE_GPIO is enabled
     if USE_GPIO:
         coords = _read_gps_hardware()
-        if not coords:
-            coords = _read_gps_simulation()
-    else:
+
+    # 2. Try auto-detecting hardware if serial port exists (even if USE_GPIO is False)
+    if not coords:
+        try:
+            import os
+            if os.path.exists(GPS_PORT):
+                logger.info(f"Auto-detecting GPS hardware on port {GPS_PORT}...")
+                coords = _read_gps_hardware()
+        except Exception as e:
+            logger.debug(f"Hardware auto-detection check skipped: {e}")
+
+    # 3. Fall back to IP geolocation to find real-time location (e.g. Navsari, Gujarat)
+    if not coords:
+        coords = _read_gps_ip()
+
+    # 4. Fall back to simulated/configured test coordinates
+    if not coords:
         coords = _read_gps_simulation()
 
     address = _reverse_geocode(coords['lat'], coords['lon'])
@@ -358,7 +399,7 @@ if __name__ == '__main__':
     print("   BlindAssist GPS Navigator — Test")
     print("   Project: CSR-DES-INFINEON-2025")
     print("=" * 50)
-    print("[SIMULATION] Using Indore, India coordinates")
+    print("[SIMULATION] Fallback: Navsari, Gujarat / IP Geolocation")
     print("Commands:")
     print("  W  → Where am I? (current location)")
     print("  N  → Navigate to a destination")

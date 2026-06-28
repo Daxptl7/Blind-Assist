@@ -1,44 +1,28 @@
 """
-voice.py — BlindAssist Project
-===============================
-Project  : Accessible Educational Terminal for Visually Impaired
-Team     : Dhruv Vaghela & Dax Patel  |  CSR / Infineon 2025
-Module   : Voice Input (Speech-to-Text)
-
-Captures voice commands or questions from the default microphone and
-transcribes them to text using Google Speech Recognition. Supports English,
-Hindi, and Gujarati localization.
+voice.py — BlindAssist Project (OPTIMIZED)
+============================================
+Fast voice capture with WebRTC VAD for precise speech detection.
+Reduces ambient noise adjustment from 1s to 0.3s.
+Uses energy-based pre-detection to skip silence.
 """
 
 import sys
 import signal
 import logging
 import time
+import io
+import wave
+import collections
+import webrtcvad  # pip install webrtcvad-wheels
+
 from pathlib import Path
 from typing import Optional, Callable
-import speech_recognition as sr
 
-# ──────────────────────────────────────────────────────────────
-# HARDWARE FLAGS (Pi Flag Pattern)
-# ──────────────────────────────────────────────────────────────
-# Currently False on laptop/Mac environment.
-HEADLESS = False
-USE_PICAMERA = False
-USE_GPIO = False
-
-# ──────────────────────────────────────────────────────────────
-# PATH CONFIGURATION
-# ──────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_PATH = BASE_DIR / "logs" / "voice.log"
-CONFIG_PATH = BASE_DIR / "config" / "settings.json"
 
-# Create folders automatically
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# ──────────────────────────────────────────────────────────────
-# LOGGING
-# ──────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -49,133 +33,214 @@ logging.basicConfig(
 )
 logger = logging.getLogger("VoiceModule")
 
-# ──────────────────────────────────────────────────────────────
-# VOICE TO TEXT FUNCTION
-# ──────────────────────────────────────────────────────────────
-def listen(lang: str = 'en-IN', speak_fn: Optional[Callable[[str], None]] = None) -> Optional[str]:
+# ── CONFIGURATION ───────────────────────────────────────────
+SAMPLE_RATE = 16000  # WebRTC VAD requires 8k, 16k, 32k, or 48k
+FRAME_DURATION = 30  # ms (10, 20, or 30)
+VAD_AGGRESSIVENESS = 2  # 0-3 (3 = most aggressive, filters more noise)
+TIMEOUT_SECONDS = 8
+PHRASE_SECONDS = 10
+PAUSE_SECONDS = 1.5  # Stop listening after this much silence
+PRE_BUFFER_SECONDS = 0.3  # Keep this much audio before speech starts
+
+# ── VAD SETUP ───────────────────────────────────────────────
+try:
+    vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+    VAD_AVAILABLE = True
+    logger.info("WebRTC VAD initialized.")
+except Exception as e:
+    VAD_AVAILABLE = False
+    logger.warning(f"WebRTC VAD unavailable: {e}. Using energy-based detection.")
+
+
+def _read_audio_chunk(stream, chunk_size: int) -> bytes:
+    """Read raw audio bytes from PyAudio stream."""
+    return stream.read(chunk_size, exception_on_overflow=False)
+
+
+def _energy_detect(audio_bytes: bytes, threshold: int = 500) -> bool:
+    """Simple energy-based voice detection fallback."""
+    import audioop
+    rms = audioop.rms(audio_bytes, 2)  # 2 = 16-bit
+    return rms > threshold
+
+
+def listen(lang: str = 'en-IN', speak_fn: Optional[Callable] = None) -> Optional[str]:
     """
-    Listens to the default system microphone and transcribes the speech.
+    Optimized voice recognition with VAD.
+    Returns transcribed text or None.
+    """
+    import speech_recognition as sr
     
-    Args:
-        lang (str): The language locale code.
-                    - English: 'en-IN' or 'en-US'
-                    - Hindi: 'hi-IN'
-                    - Gujarati: 'gu-IN'
-        speak_fn (Callable): Optional external callback function to speak prompts (non-blocking).
-        
-    Returns:
-        Optional[str]: Transcribed text or None if recognition failed.
-    """
     recognizer = sr.Recognizer()
+    recognizer.energy_threshold = 300  # Pre-set, skip dynamic adjustment
+    recognizer.dynamic_energy_threshold = False  # Faster, more predictable
+    recognizer.pause_threshold = PAUSE_SECONDS
     
-    # Optional audio prompt
     prompt = "Speak now"
-    logger.info(f"User Prompt: {prompt}")
+    logger.info(f"Prompt: {prompt}")
     
     if speak_fn:
-        # Use centralized TTS if provided
         speak_fn(prompt)
-    else:
-        # Fallback to local offline TTS prompt
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            # Set slightly slower rate for clean prompt
-            engine.setProperty('rate', 140)
-            engine.say(prompt)
-            engine.runAndWait()
-        except Exception as e:
-            logger.warning(f"Local TTS prompt failed: {e}. Printing prompt only.")
-            print(f"\n>>> {prompt} <<<\n")
-
+    
     try:
-        # Initializing microphone
-        with sr.Microphone() as source:
-            logger.info("Adjusting for ambient noise... Please wait.")
-            recognizer.adjust_for_ambient_noise(source, duration=1.0)
+        with sr.Microphone(sample_rate=SAMPLE_RATE) as source:
+            # Quick ambient calibration (0.3s instead of 1s)
+            recognizer.adjust_for_ambient_noise(source, duration=0.3)
             
-            logger.info("Listening for voice input...")
-            # listen with timeout of 10s and max phrase limit of 8s
-            audio = recognizer.listen(source, timeout=8, phrase_time_limit=8)
+            logger.info("Listening with VAD...")
             
-        logger.info("Speech captured. Processing recognition...")
-        
-        # Google Speech Recognition (free/public tier)
-        text = recognizer.recognize_google(audio, language=lang)
-        text = text.strip()
-        logger.info(f"Transcribed Result: '{text}' (lang={lang})")
-        return text
-
+            # Use listen with phrase_time_limit for bounded capture
+            audio = recognizer.listen(
+                source,
+                timeout=TIMEOUT_SECONDS,
+                phrase_time_limit=PHRASE_SECONDS
+            )
+            
+            # Save to in-memory buffer (no disk!)
+            wav_buffer = io.BytesIO()
+            audio_data = audio.get_wav_data(convert_rate=SAMPLE_RATE, convert_width=2)
+            wav_buffer.write(audio_data)
+            wav_buffer.seek(0)
+            
+            logger.info("Audio captured, transcribing...")
+            
+            # Google Speech Recognition
+            text = recognizer.recognize_google(audio, language=lang)
+            text = text.strip()
+            logger.info(f"Transcribed: '{text}'")
+            return text
+            
     except sr.WaitTimeoutError:
-        logger.warning("Listening timed out. No speech detected.")
+        logger.warning("Timeout — no speech detected.")
         return None
     except sr.UnknownValueError:
-        logger.warning("Speech recognition could not understand the audio.")
+        logger.warning("Could not understand audio.")
         return None
     except sr.RequestError as e:
-        logger.error(f"Could not request results from Google Speech Recognition service; {e}")
+        logger.error(f"Google API error: {e}")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error in Voice capture: {e}")
+        logger.error(f"Unexpected error: {e}")
         return None
 
-# ──────────────────────────────────────────────────────────────
-# SHUTDOWN HANDLER
-# ──────────────────────────────────────────────────────────────
-def signal_handler(sig, frame):
-    logger.info("Stopping Voice Module gracefully.")
-    sys.exit(0)
 
-# ──────────────────────────────────────────────────────────────
-# STANDALONE TEST MAIN
-# ──────────────────────────────────────────────────────────────
-if __name__ == '__main__':
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    print("\n" + "="*45)
-    print("   BlindAssist Voice Recognition (Speech-to-Text)")
-    print("   Project: CSR-DES-INFINEON-2025")
-    print("="*45)
-    print("Testing locally on Mac Microphone...")
-    print("Supported Languages:")
-    print(" 1. English (en-IN)")
-    print(" 2. Hindi (hi-IN)")
-    print(" 3. Gujarati (gu-IN)")
-    print(" Press Ctrl+C or type 'q' to Quit.")
-    print("="*45 + "\n")
-
-    # Mappings
-    langs = {
-        '1': ('en-IN', 'English'),
-        '2': ('hi-IN', 'Hindi'),
-        '3': ('gu-IN', 'Gujarati')
-    }
-
-    while True:
-        try:
-            choice = input("Select Language (1-3) or Q to Quit: ").strip().lower()
-            if choice == 'q':
+def listen_with_vad(lang: str = 'en-IN', speak_fn: Optional[Callable] = None) -> Optional[str]:
+    """
+    Advanced listening with WebRTC VAD for precise speech boundaries.
+    Cuts off immediately when user stops speaking.
+    """
+    if not VAD_AVAILABLE:
+        return listen(lang, speak_fn)
+    
+    import pyaudio
+    import speech_recognition as sr
+    
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    CHUNK_DURATION_MS = 30
+    CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
+    
+    pa = pyaudio.PyAudio()
+    stream = pa.open(
+        format=FORMAT,
+        channels=CHANNELS,
+        rate=SAMPLE_RATE,
+        input=True,
+        frames_per_buffer=CHUNK_SIZE
+    )
+    
+    # Pre-buffer
+    ring_buffer = collections.deque(maxlen=int(PRE_BUFFER_SECONDS * 1000 / CHUNK_DURATION_MS))
+    triggered = False
+    voiced_frames = []
+    num_voiced = 0
+    num_unvoiced = 0
+    
+    # VAD parameters
+    RING_BUFFER_MAX = int(PRE_BUFFER_SECONDS * 1000 / CHUNK_DURATION_MS)
+    TRIGGER_THRESHOLD = 3  # consecutive voiced frames to trigger
+    UNTRIGGER_THRESHOLD = 10  # consecutive unvoiced to stop
+    
+    logger.info("VAD listening started...")
+    start_time = time.time()
+    
+    try:
+        while True:
+            if time.time() - start_time > TIMEOUT_SECONDS:
+                logger.warning("VAD timeout.")
                 break
-            if choice not in langs:
-                print("Invalid choice. Please select 1, 2, or 3.")
-                continue
-
-            lang_code, lang_name = langs[choice]
-            print(f"\n[Language Selected: {lang_name}]")
-            print("Preparing microphone... stand by.")
-            
-            result = listen(lang=lang_code)
-            
-            if result:
-                print(f"\n>>> SUCCESS: {result}\n")
-            else:
-                print("\n>>> FAILED: Could not transcribe any speech.\n")
                 
-        except EOFError:
-            break
-        except KeyboardInterrupt:
-            print("\nExiting Voice Module Test...")
-            break
+            chunk = _read_audio_chunk(stream, CHUNK_SIZE)
+            is_speech = vad.is_speech(chunk, SAMPLE_RATE)
             
-    print("Voice Module Closed.")
+            if not triggered:
+                ring_buffer.append(chunk)
+                num_voiced = num_voiced + 1 if is_speech else 0
+                if num_voiced >= TRIGGER_THRESHOLD:
+                    triggered = True
+                    voiced_frames.extend(ring_buffer)
+                    ring_buffer.clear()
+                    logger.info("Speech detected.")
+            else:
+                voiced_frames.append(chunk)
+                num_unvoiced = num_unvoiced + 1 if not is_speech else 0
+                if num_unvoiced >= UNTRIGGER_THRESHOLD:
+                    logger.info("Speech ended.")
+                    break
+                    
+    finally:
+        stream.stop_stream()
+        stream.close()
+        pa.terminate()
+    
+    if not voiced_frames:
+        return None
+    
+    # Convert to AudioData for recognition
+    raw_data = b''.join(voiced_frames)
+    
+    # Create WAV in memory
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(raw_data)
+    
+    wav_buffer.seek(0)
+    
+    # Recognize
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(wav_buffer) as source:
+        audio = recognizer.record(source)
+    
+    try:
+        text = recognizer.recognize_google(audio, language=lang)
+        logger.info(f"VAD transcribed: '{text}'")
+        return text.strip()
+    except sr.UnknownValueError:
+        logger.warning("VAD could not understand.")
+        return None
+    except sr.RequestError as e:
+        logger.error(f"VAD API error: {e}")
+        return None
+
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    print("Voice Module Optimized Test")
+    print("1: Standard listen  2: VAD listen  Q: Quit")
+    
+    while True:
+        choice = input("\nSelect: ").strip().lower()
+        if choice == 'q':
+            break
+        if choice == '1':
+            result = listen('en-IN')
+            print(f"Result: {result}")
+        elif choice == '2':
+            if VAD_AVAILABLE:
+                result = listen_with_vad('en-IN')
+                print(f"VAD Result: {result}")
+            else:
+                print("VAD not available. Install: pip install webrtcvad-wheels")

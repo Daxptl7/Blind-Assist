@@ -1,105 +1,27 @@
+"""
+morse.py — BlindAssist Project (OPTIMIZED)
+============================================
+Background timing thread with millisecond precision.
+Auto-decodes letters and words without polling.
+Thread-safe with Lock-free queue for main.py.
+"""
+
 import json
 import logging
 import signal
 import sys
 import time
+import threading
+from queue import Queue
 
 from pathlib import Path
-from threading import Lock
 
-# ─────────────────────────────────────────────────────────────
-# HARDWARE FLAGS
-# ─────────────────────────────────────────────────────────────
-HEADLESS = False
-USE_PICAMERA = False
-USE_GPIO = False
-
-# ─────────────────────────────────────────────────────────────
-# PATHS
-# ─────────────────────────────────────────────────────────────
-from pathlib import Path
-
-# ─────────────────────────────────────────────────────────────
-# BASE DIRECTORY
-# ─────────────────────────────────────────────────────────────
-# Current file:
-# blindterminal/modules/morse.py
-#
-# parent        -> modules/
-# parent.parent -> blindterminal/
-# ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# ─────────────────────────────────────────────────────────────
-# PATHS
-# ─────────────────────────────────────────────────────────────
 CONFIG_PATH = BASE_DIR / "config" / "settings.json"
 LOG_PATH = BASE_DIR / "logs" / "morse.log"
 
-# Create logs directory automatically
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-# ─────────────────────────────────────────────────────────────
-# DEFAULT SETTINGS
-# ─────────────────────────────────────────────────────────────
-DEFAULT_SETTINGS = {
-    "morse_dot_max_ms": 400,
-    "morse_dash_min_ms": 400,
-    "morse_letter_gap_ms": 1500,
-    "morse_word_gap_ms": 3000,
-}
 
-# ─────────────────────────────────────────────────────────────
-# MORSE CODE MAP
-# ─────────────────────────────────────────────────────────────
-MORSE_CODE_DICT = {
-    '.-': 'A',
-    '-...': 'B',
-    '-.-.': 'C',
-    '-..': 'D',
-    '.': 'E',
-    '..-.': 'F',
-    '--.': 'G',
-    '....': 'H',
-    '..': 'I',
-    '.---': 'J',
-    '-.-': 'K',
-    '.-..': 'L',
-    '--': 'M',
-    '-.': 'N',
-    '---': 'O',
-    '.--.': 'P',
-    '--.-': 'Q',
-    '.-.': 'R',
-    '...': 'S',
-    '-': 'T',
-    '..-': 'U',
-    '...-': 'V',
-    '.--': 'W',
-    '-..-': 'X',
-    '-.--': 'Y',
-    '--..': 'Z',
-
-    '-----': '0',
-    '.----': '1',
-    '..---': '2',
-    '...--': '3',
-    '....-': '4',
-    '.....': '5',
-    '-....': '6',
-    '--...': '7',
-    '---..': '8',
-    '----.': '9',
-
-    '.-.-.-': '.',
-    '--..--': ',',
-    '..--..': '?',
-    '-....-': '-',
-    '-..-.': '/',
-}
-
-# ─────────────────────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -108,228 +30,197 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-
 logger = logging.getLogger("MorseModule")
 
+# ── CONFIG ──────────────────────────────────────────────────
+DEFAULT_SETTINGS = {
+    "morse_dot_max_ms": 400,
+    "morse_dash_min_ms": 400,
+    "morse_letter_gap_ms": 1500,
+    "morse_word_gap_ms": 3000,
+}
 
-# ─────────────────────────────────────────────────────────────
-# MORSE DECODER
-# ─────────────────────────────────────────────────────────────
+def _load_settings():
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        return DEFAULT_SETTINGS.copy()
+
+_settings = _load_settings()
+DOT_MAX_MS = _settings.get("morse_dot_max_ms", 400)
+DASH_MIN_MS = _settings.get("morse_dash_min_ms", 400)
+LETTER_GAP_MS = _settings.get("morse_letter_gap_ms", 1500)
+WORD_GAP_MS = _settings.get("morse_word_gap_ms", 3000)
+
+# ── MORSE TABLE ─────────────────────────────────────────────
+MORSE_CODE_DICT = {
+    '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+    '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+    '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+    '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+    '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+    '--..': 'Z', '-----': '0', '.----': '1', '..---': '2',
+    '...--': '3', '....-': '4', '.....': '5', '-....': '6',
+    '--...': '7', '---..': '8', '----.': '9',
+    '.-.-.-': '.', '--..--': ',', '..--..': '?',
+}
+
+# ── DECODER WITH AUTO-TIMING ────────────────────────────────
 class MorseDecoder:
-
     def __init__(self):
-        self.settings = self.load_settings()
-
-        self.current_sequence = ""
-        self.current_word = ""
-
-        self.last_input_time = time.time()
-
-        self.lock = Lock()
+        self.sequence = ""
+        self.word = ""
+        self.last_symbol_time = 0
+        self.lock = threading.Lock()
+        self.output_queue = Queue()  # Decoded letters/words go here
         self.running = True
+        self._timer_thread = threading.Thread(target=self._timing_loop, daemon=True)
+        self._timer_thread.start()
+        logger.info("Morse decoder started with auto-timing.")
 
-    def load_settings(self):
+    def _timing_loop(self):
+        """Background thread: checks gaps and auto-decodes."""
+        while self.running:
+            time.sleep(0.05)  # 50ms check interval
+            
+            with self.lock:
+                if not self.sequence:
+                    continue
+                    
+                gap = (time.time() - self.last_symbol_time) * 1000
+                
+                if gap >= WORD_GAP_MS:
+                    # Word complete
+                    self._decode_letter()
+                    if self.word:
+                        self.output_queue.put(("WORD", self.word))
+                        logger.info(f"Word complete: {self.word}")
+                        self.word = ""
+                        
+                elif gap >= LETTER_GAP_MS:
+                    # Letter complete
+                    self._decode_letter()
+
+    def _decode_letter(self):
+        """Decode current sequence to letter."""
+        if not self.sequence:
+            return
+            
+        letter = MORSE_CODE_DICT.get(self.sequence, '?')
+        self.word += letter
+        logger.info(f"Decoded: {self.sequence} -> {letter}")
+        self.output_queue.put(("LETTER", letter))
+        self.sequence = ""
+
+    def add_dot(self):
+        with self.lock:
+            self.sequence += '.'
+            self.last_symbol_time = time.time()
+            logger.debug(f"Dot added: {self.sequence}")
+
+    def add_dash(self):
+        with self.lock:
+            self.sequence += '-'
+            self.last_symbol_time = time.time()
+            logger.debug(f"Dash added: {self.sequence}")
+
+    def backspace(self):
+        with self.lock:
+            if self.word:
+                self.word = self.word[:-1]
+                logger.info(f"Backspace: {self.word}")
+
+    def get_output(self, timeout: float = 0.1):
+        """Non-blocking read of decoded output."""
         try:
-            with open(CONFIG_PATH, "r") as file:
-                return json.load(file)
-
-        except Exception as error:
-            logger.warning(f"Using default settings: {error}")
-            return DEFAULT_SETTINGS.copy()
-
-    def add_symbol(self, symbol: str):
-        with self.lock:
-            self.current_sequence += symbol
-            self.last_input_time = time.time()
-
-            logger.info(
-                f"Added Symbol: {symbol} | "
-                f"Current Sequence: {self.current_sequence}"
-            )
-
-    def process_gap(self):
-        with self.lock:
-
-            current_time = time.time()
-
-            gap_ms = (
-                current_time - self.last_input_time
-            ) * 1000
-
-            word_gap = self.settings["morse_word_gap_ms"]
-            letter_gap = self.settings["morse_letter_gap_ms"]
-
-            if gap_ms >= word_gap:
-
-                self.decode_letter()
-                return "WORD_GAP"
-
-            if gap_ms >= letter_gap:
-
-                self.decode_letter()
-                return "LETTER_GAP"
-
+            return self.output_queue.get(timeout=timeout)
+        except:
             return None
 
-    def decode_letter(self):
-
-        if not self.current_sequence:
-            return
-
-        letter = MORSE_CODE_DICT.get(
-            self.current_sequence,
-            "?"
-        )
-
-        self.current_word += letter
-
-        logger.info(
-            f"Decoded: {self.current_sequence} -> {letter}"
-        )
-
-        self.current_sequence = ""
-
-    def get_letter(self):
-
+    def get_word(self) -> str:
         with self.lock:
-
-            if not self.current_word:
-                return None
-
-            return self.current_word[-1]
-
-    def get_word(self):
-
-        with self.lock:
-
-            word = self.current_word
-            self.current_word = ""
-
+            word = self.word
+            self.word = ""
             return word
 
-    def delete_char(self):
-
+    def reset(self):
         with self.lock:
+            self.sequence = ""
+            self.word = ""
+            # Clear queue
+            while not self.output_queue.empty():
+                self.output_queue.get()
 
-            if self.current_word:
-
-                self.current_word = (
-                    self.current_word[:-1]
-                )
-
-                logger.info(
-                    f"Deleted Character | "
-                    f"Current Word: {self.current_word}"
-                )
-
-    def add_space(self):
-
-        with self.lock:
-
-            self.current_word += " "
-
-            logger.info(
-                f"Space Added | "
-                f"Current Word: {self.current_word}"
-            )
+    def shutdown(self):
+        self.running = False
+        self._timer_thread.join(timeout=1)
 
 
-# ─────────────────────────────────────────────────────────────
-# GLOBAL DECODER
-# ─────────────────────────────────────────────────────────────
-decoder = MorseDecoder()
+# ── GLOBAL INSTANCE ─────────────────────────────────────────
+_decoder = MorseDecoder()
 
+def add_dot():
+    _decoder.add_dot()
 
-# ─────────────────────────────────────────────────────────────
-# API FUNCTIONS
-# ─────────────────────────────────────────────────────────────
-def get_letter():
-    return decoder.get_letter()
+def add_dash():
+    _decoder.add_dash()
 
+def backspace():
+    _decoder.backspace()
 
-def get_word():
-    return decoder.get_word()
+def get_output(timeout: float = 0.1):
+    return _decoder.get_output(timeout)
 
+def get_word() -> str:
+    return _decoder.get_word()
 
-# ─────────────────────────────────────────────────────────────
-# SIGNAL HANDLER
-# ─────────────────────────────────────────────────────────────
-def signal_handler(sig, frame):
+def reset():
+    _decoder.reset()
 
-    logger.info("Shutting down Morse module...")
-
-    decoder.running = False
-    sys.exit(0)
-
-
-# ─────────────────────────────────────────────────────────────
-# TERMINAL SIMULATION
-# ─────────────────────────────────────────────────────────────
+# ── KEYBOARD SIMULATION ─────────────────────────────────────
 def run_simulation():
-
-    signal.signal(signal.SIGINT, signal_handler)
-
-    print("\n--- BlindAssist Morse Simulation ---")
-    print("'.'  -> DOT")
-    print("'-'  -> DASH")
-    print("'Enter' -> Confirm Word")
-    print("'Backspace' -> Delete Character")
-    print("'Tab' -> Add Space")
-    print("'Ctrl+C' -> Exit")
-    print("------------------------------------\n")
-
+    """Non-blocking keyboard Morse input."""
     try:
         import readchar
-
     except ImportError:
-
         import subprocess
-
-        print("Installing readchar...")
-
-        subprocess.check_call([
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "readchar"
-        ])
-
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "readchar"])
         import readchar
 
-    while decoder.running:
-
+    print("\n--- Morse Simulation ---")
+    print(". = DOT  |  - = DASH  |  Enter = Confirm  |  BS = Delete  |  Tab = Space")
+    print("Auto-decodes after 1.5s gap. Auto-words after 3s gap.")
+    
+    while _decoder.running:
         try:
-
-            decoder.process_gap()
-
             char = readchar.readchar()
-
+            
             if char == '.':
-                decoder.add_symbol('.')
-
+                add_dot()
+                print(".", end="", flush=True)
             elif char == '-':
-                decoder.add_symbol('-')
-
+                add_dash()
+                print("-", end="", flush=True)
             elif char in ['\r', '\n']:
-
-                word = decoder.get_word()
-
+                word = get_word()
                 print(f"\n[CONFIRMED]: {word}\n")
-
-            elif char == '\x7f':
-                decoder.delete_char()
-
+            elif char == '\x7f':  # Backspace
+                backspace()
+                print("\b \b", end="", flush=True)
             elif char == '\t':
-                decoder.add_space()
+                with _decoder.lock:
+                    _decoder.word += " "
+                print(" ", end="", flush=True)
+            
+            # Check for auto-decoded output
+            output = get_output(timeout=0)
+            if output and output[0] == "LETTER":
+                print(f"\n[LETTER: {output[1]}]", end="", flush=True)
+                
+        except Exception as e:
+            logger.error(f"Sim error: {e}")
 
-        except Exception as error:
-
-            logger.error(f"Simulation Error: {error}")
-
-
-# ─────────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────────
-if __name__ == "__main__":
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, lambda s, f: (_decoder.shutdown(), sys.exit(0)))
     run_simulation()

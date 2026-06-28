@@ -19,3 +19,10 @@ logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Secrets & Local Storage
+.env
+data/
+*.faiss
+*.pkl
+
